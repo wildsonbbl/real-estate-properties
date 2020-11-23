@@ -1,0 +1,184 @@
+---
+title: "Peer Assessment I"
+
+output:
+        html_document:
+                pandoc_args: 
+                        ["--number-sections"]
+---
+
+First, let us load the data and necessary packages:
+
+```{r setup, include=F}
+knitr::opts_chunk$set(message = F, comment = '')
+```
+
+```{r load, message = FALSE}
+load("ames_train.Rdata")
+library(MASS)
+library(dplyr)
+library(ggplot2)
+library(BAS)
+library(reshape2)
+```
+
+#
+Make a labeled histogram (with 30 bins) of the ages of the houses in the data set, and describe the distribution.
+
+
+```{r Q1}
+# type your code for Question 1 here, and Knit
+ggplot(ames_train, aes(x = 2020-Year.Built)) + geom_histogram(bins = 30,fill='white',color='black') + theme_bw() + xlab('Age') + ylab('Count')
+```
+
+
+
+
+* * *
+
+Multimodal, right skewed distribution, with higher counts of more recent houses.
+
+* * *
+
+
+#
+The mantra in real estate is "Location, Location, Location!" Make a graphical display that relates a home price to its neighborhood in Ames, Iowa. Which summary statistics are most appropriate to use for determining the most expensive, least expensive, and most heterogeneous (having the most variation in housing price) neighborhoods? Report which neighborhoods these are based on the summary statistics of your choice. Report the value of your chosen summary statistics for these neighborhoods.
+
+
+```{r Q2}
+# type your code for Question 2 here, and Knit
+ggplot(ames_train, aes(x = Neighborhood, y = price)) + geom_boxplot(aes(fill = Neighborhood)) + 
+        theme_bw() + 
+        scale_x_discrete(label = NULL)
+
+ames_train %>% 
+        group_by(Neighborhood) %>% 
+        summarise(median = median(price), IQR = IQR(price)) -> summarystatistic
+
+summarystatistic %>% arrange(desc(median)) %>% head(2)
+summarystatistic %>% arrange((median)) %>% head(2)
+summarystatistic %>% arrange(desc(IQR)) %>% head(2)
+```
+
+
+* * *
+
+The boxplot shows there is a lot of outliers, and this affects a lot summaries based on the mean and standard deviation. Then, It's more appropriate to use the robust estimate, that is the median and IQR. 
+
+That being said, StoneBr is the most expensive and also the most heterogeneous, with 340691.5 median and 151358 IQR. The least expensive is MeadowV, with 85750 median.
+
+* * *
+
+# 
+
+Which variable has the largest number of missing values? Explain why it makes sense that there are so many missing values for this variable.
+
+```{r Q3}
+# type your code for Question 3 here, and Knit
+ames_train %>% select(where(anyNA)) %>% 
+        mutate(across(.fns=is.na)) %>% 
+        summarise(across(.fns=sum)) %>% 
+        melt() %>% 
+        arrange(desc(value)) %>% head(3)
+```
+
+
+* * *
+
+Pool.QC. It's the pool quality variable. Missing values means that the house doesn't have a pool. So it makes sense that there is a lot of those, since not many houses have pools anyway.
+
+* * *
+
+#
+
+We want to predict the natural log of the home prices. Candidate explanatory variables are lot size in square feet (Lot.Area), slope of property (Land.Slope), original construction date (Year.Built), remodel date (Year.Remod.Add), and the number of bedrooms above grade (Bedroom.AbvGr). Pick a model selection or model averaging method covered in the Specialization, and describe how this method works. Then, use this method to find the best multiple regression model for predicting the natural log of the home prices.
+
+
+```{r Q4}
+# type your code for Question 4 here, and Knit
+models <- bas.lm(log(price)~Lot.Area + Land.Slope + Year.Built + Year.Remod.Add + Bedroom.AbvGr, data = ames_train,prior = 'BIC',modelprior = uniform())
+summary(models)
+coefs<-coef(models)
+par(mfrow=c(3,3))
+plot(coefs,subset= 2:7,ask=F)
+```
+
+* * *
+
+For the multiple linear regression modeling we are going to use a Bayesian Model Averaging (BMA). The BMA works weight averaging multiple models, weighting each model with its calculated posterior probability. This way we can account for the uncertainty about the variables to be included in the model, instead of choosing just one and ignoring this uncertainty about the true model.
+
+For this, we use the `bas.lm` function from the `BAS` package to calculate the posterior probability of every possible model. With all those variables included, We will have a total of $2^k$ models, where $k=6$, resulting in **`r 2^6`** models. We assign equal prior probabilities to all those models and use Bayesian Information Criterion (BIC) to set the coefficients prior, which is a very conservative prior.
+
+From the summary of the models we can see that all the variables have high Marginal Posterior Inclusion Probabilities, and the model including all the variables is the one with highest posterior probability. The plot shows the distribution of coefficients' posterior probabilities. Given these, we keep our model as is.
+
+* * *
+
+#
+
+Which home has the largest squared residual in the previous analysis (Question 4)? Looking at all the variables in the data set, can you explain why this home stands out from the rest (what factors contribute to the high squared residual and why are those factors relevant)?
+
+
+```{r Q5}
+# type your code for Question 5 here, and Knit
+plot(models,which=1)
+pred<-predict(models)
+
+squaredres <- (log(ames_train$price)-pred$fit)^2
+
+ames_train[which.max(squaredres),] %>% glimpse()
+```
+
+* * *
+
+It's a very old house, sold under abnormal conditions in poor overall condition and quality. Those variables that were not included in the model could be important factors to consider for the prediction, thus lowering the squared residual. As they were not accounted, it was mistaken for a better house than it actually was, probably because mistaken by the number of bedrooms and lot size.
+
+
+* * *
+
+#
+
+Use the same model selection method you chose in Question 4 to again find the best multiple regression model to predict the natural log of home prices, but this time **replacing Lot.Area with log(Lot.Area)**. Do you arrive at a model including the same set of predictors?
+
+
+```{r Q6}
+# type your code for Question 6 here, and Knit
+models2 <- bas.lm(log(price)~log(Lot.Area) + Land.Slope + Year.Built + Year.Remod.Add + Bedroom.AbvGr, data = ames_train,prior = 'BIC',modelprior = uniform())
+summary(models2)
+coefs2<-coef(models2)
+par(mfrow=c(3,3))
+plot(coefs2,subset= 2:7,ask=F)
+```
+
+No, the resulted BMA considers Land.SlopeSev with a very low marginal conditional posterior probability, which means a high probability of being 0 (not included in the model).
+
+* * *
+
+#
+
+Do you think it is better to log transform Lot.Area, in terms of assumptions for linear regression? Make graphs of the predicted values of log home price versus the true values of log home price for the regression models selected for Lot.Area and log(Lot.Area). Referencing these two plots, provide a written support that includes a quantitative justification for your answer in the first part of question 7.
+
+```{r Q7}
+# type your code for Question 7 here, and Knit
+pred2<- predict(models2)
+
+predictions<- data.frame(true.value = log(ames_train$price), lot.area.model = pred$fit, log.lot.area.model = pred2$fit )
+
+melted<- melt(predictions, id.vars=1)
+
+ggplot(melted,aes(x = value,y=true.value)) + 
+        geom_point() + 
+        theme_bw() +
+        facet_wrap(~variable) +
+        geom_smooth(method = 'lm') + labs(title = 'Predicted log home price vs True log home price')
+
+predictions %>% 
+        summarise(sum.res.squared.lot.area.model = sum((true.value-lot.area.model)^2),
+                  sum.res.squared.log.lot.area.model = sum((true.value-log.lot.area.model)^2)) %>%
+        round(2)
+```
+
+* * *
+
+With the log transformation, the sum of the squared residuals was further minimized from 77.43 to 69.88. This happens because it is easier to apply statistical models on a data less skewed and with outliers less extremes (as can be seen in the plots), and the log transformation provides that. That is, it is indeed better to log transform lot.area.
+
+* * *
